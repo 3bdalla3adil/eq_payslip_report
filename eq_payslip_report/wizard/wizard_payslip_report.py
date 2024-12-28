@@ -216,7 +216,7 @@ class wizard_payslip_report(models.TransientModel):
     # ===========================PaySlip SHEET TEMPLATE ============================================
     # =============================================================================================
     
-    def print_report_xls(self):
+        def print_report_xls(self):
         slip_ids = self.payslip_ids
         xls_filename = 'Payslip Report.xlsx'
         workbook = xlsxwriter.Workbook(xls_filename)
@@ -252,9 +252,16 @@ class wizard_payslip_report(models.TransientModel):
                 "Mama Villa": ["Mama Villa Labour", "Mama Villa Gardner", "Mama Villa Cook", "Mama Villa Driver"]
             },
             "Dr. Badria": {
-                "Dr. Badria": ["Dr.Badria Cook", "Dr.Badria Housemaid"]
+                "Dr. Badria": ["Dr.Badria Cook", "Dr.Badria Housemaid", "Dr.Badria Driver"]
             },
         }
+
+        if self.env.company.name == 'Badria Dermatology':
+            job_categories = {
+                "Doctors Salaries": {"Dermatologist":["Dermatologist"]},
+                "Staff Salaries": {"Office Staff": ["Admin", "Nurse",]},
+                "Workers Salaries": {"Drivers": ["Driver"]},
+            }
 
         # Column settings and header
         worksheet.set_column('A:AZ', 18)
@@ -338,6 +345,14 @@ class wizard_payslip_report(models.TransientModel):
             worksheet.write(row, col, total, number_format)
             col += 1
 
+        # Add "Prepared by" and "Reviewed by"
+        row += 2
+        # Add some space before these fields
+        worksheet.write(row, 1, "Prepared by:", font_bold_center)
+        worksheet.write(row, 2, "")
+        worksheet.write(row, col-2, "Reviewed by:", font_bold_center)
+        worksheet.write(row, col-1, "")
+
         # Add Payment Method Sheets
         self.add_payment_method_sheets(workbook, slip_ids, text_center, font_bold_center, number_format)
 
@@ -352,7 +367,6 @@ class wizard_payslip_report(models.TransientModel):
     def add_payment_method_sheets(self, workbook, slip_ids, text_center, font_bold_center, number_format):
         payment_methods = ['cash', 'card']
         for payment_method in payment_methods:
-
             sheet_name = f"{payment_method}".upper()
             payment_worksheet = workbook.add_worksheet(sheet_name)
             payment_worksheet.set_column('A:H', 18)
@@ -373,28 +387,39 @@ class wizard_payslip_report(models.TransientModel):
             row += 1
 
             sr_no = 1
+            totals = {header: 0.0 for header in headers[4:]}  # Initialize totals for each header column
 
             for payslip in filtered_slips:
-                basic_salary = payslip.line_ids.filtered(lambda l: l.code == 'BASIC').mapped('total') or [0.0]
-                # allowances = payslip.line_ids.filtered(lambda l: l.category_id.name == 'Allowances').mapped(
-                allowances = payslip.line_ids.filtered(lambda l: l.category_id.name == 'Allowance').mapped(
-                    'total') or [0.0]
-                # deductions = payslip.line_ids.filtered(lambda l: l.category_id.name == 'Deductions').mapped(
-                deductions = payslip.line_ids.filtered(lambda l: l.category_id.name == 'Deduction').mapped(
-                    'total') or [0.0]
-                net_salary = payslip.line_ids.filtered(lambda l: l.code == 'NET').mapped('total') or [0.0]
+                basic_salary = sum(payslip.line_ids.filtered(lambda l: l.code == 'BASIC').mapped('total') or [0.0])
+                allowances = sum(
+                    payslip.line_ids.filtered(lambda l: l.category_id.name == 'Allowance').mapped('total') or [0.0])
+                deductions = sum(
+                    payslip.line_ids.filtered(lambda l: l.category_id.name == 'Deduction').mapped('total') or [0.0])
+                net_salary = sum(payslip.line_ids.filtered(lambda l: l.code == 'NET').mapped('total') or [0.0])
 
                 payment_worksheet.write(row, 0, sr_no, text_center)
                 payment_worksheet.write(row, 1, payslip.number or '', text_center)
                 payment_worksheet.write(row, 2, payslip.employee_id.name or '', text_center)
                 payment_worksheet.write(row, 3, payslip.employee_id.job_id.name or '', text_center)
-                payment_worksheet.write(row, 4, basic_salary[0], number_format)
-                payment_worksheet.write(row, 5, sum(allowances), number_format)
-                payment_worksheet.write(row, 6, sum(deductions), number_format)
-                payment_worksheet.write(row, 7, net_salary[0], number_format)
+                payment_worksheet.write(row, 4, basic_salary, number_format)
+                payment_worksheet.write(row, 5, allowances, number_format)
+                payment_worksheet.write(row, 6, deductions, number_format)
+                payment_worksheet.write(row, 7, net_salary, number_format)
+
+                totals['Basic Salary'] += basic_salary
+                totals['Allowances'] += allowances
+                totals['Deductions'] += deductions
+                totals['Net Salary'] += net_salary
 
                 row += 1
                 sr_no += 1
+
+            # Write totals for the payment method
+            payment_worksheet.write(row, 3, "Total", font_bold_center)
+            col = 4
+            for header in headers[4:]:
+                payment_worksheet.write(row, col, totals[header], font_bold_center)
+                col += 1
 
 
     #ToDo: NEED TO FIX PDF TEMPLATE
