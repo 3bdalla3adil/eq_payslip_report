@@ -311,18 +311,31 @@ class wizard_payslip_report(models.TransientModel):
     #                 'name': xls_filename,
     #                 'xls_file': base64.b64encode(open(xls_filename, 'rb').read())})
     #     return action
-    def print_report_xls(self):
+        def print_report_xls(self):
         slip_ids = self.payslip_ids
         xls_filename = 'Payslip Report.xlsx'
         workbook = xlsxwriter.Workbook(xls_filename)
+        worksheet = workbook.add_worksheet("Batch Payslip Report")
 
-        # Define job position categories
+        # Define formats
+        text_center = workbook.add_format({'align': 'center', 'valign': 'vcenter'})
+        text_center.set_text_wrap()
+        font_bold_center = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter'})
+        font_bold_right = workbook.add_format({'bold': True})
+        font_bold_right.set_num_format('###0.00')
+        number_format = workbook.add_format()
+        number_format.set_num_format('###0.00')
+        category_format = workbook.add_format(
+            {'bold': True, 'font_size': 16, 'font_color': '#D2691E'})  # Chocolate accent
+        total_format = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3', 'align': 'right'})
+
+        # Job categories
         job_categories = {
             "Company Staff": {
-                "Office Staff": ["Admin", "Accountant","Store Keeper", "IT Supervisor"],
+                "Office Staff": ["Admin", "Accountant", "Store Keeper", "IT Supervisor"],
                 "Engineers": ["Engineer", "Supervisor"],
                 "PRO/Drivers": ["Mandoop"],
-                "TeaBoy": ["house boy"],
+                "TeaBoy": ["House Boy"],
             },
             "Company Labour": {
                 "Technicians": ["AC Technician", "Mason", "Plumber", "Electrician", "Helper", "General Technician"],
@@ -330,80 +343,95 @@ class wizard_payslip_report(models.TransientModel):
                 "Watchmen": ["Watchman"],
                 "Drivers": ["Driver"],
             },
-            "Mama Villa Labour": {"Mama Villa": ["Mama Villa Labour", "Mama Villa Gardner", "Mama Villa Cook", "Mama Villa Driver"]},
-            "Dr. Badria": {"Dr. Badria": ["Dr.Badria Cook", "Dr.Badria Housemaid"]},
+            "Mama Villa Labour": {
+                "Mama Villa": ["Mama Villa Labour", "Mama Villa Gardner", "Mama Villa Cook", "Mama Villa Driver"]
+            },
+            "Dr. Badria": {
+                "Dr. Badria": ["Dr.Badria Cook", "Dr.Badria Housemaid"]
+            },
         }
 
-        # Styles
-        text_center = workbook.add_format({'align': 'center', 'valign': 'vcenter'})
-        text_left_bold_16 = workbook.add_format({'align': 'left', 'bold': True, 'font_size': 16})
-        text_left_bold_14 = workbook.add_format({'align': 'left', 'bold': True, 'font_size': 14})
-        text_left_bold_10 = workbook.add_format({'align': 'left', 'bold': True, 'font_size': 10})
-        text_left_bold_9_caps = workbook.add_format({'align': 'left', 'bold': True, 'font_size': 9, 'text_wrap': True})
-        text_left = workbook.add_format({'align': 'left'})
-        number_format = workbook.add_format({'num_format': '###0.00'})
-        font_bold_center = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter'})
+        # Column settings and header
+        worksheet.set_column('A:AZ', 18)
+        worksheet.set_row(0, 18)
+        worksheet.write(0, 1, 'Company Name', font_bold_center)
+        worksheet.merge_range(0, 2, 0, 3, self.env.user.company_id.name or '', text_center)
 
-        # Add December sheet
-        summary_worksheet = workbook.add_worksheet("December")
-        summary_worksheet.set_column('A:AZ', 18)
+        # Header row
+        row = 3
+        worksheet.merge_range(row, 0, row + 1, 0, 'No #', font_bold_center)
+        worksheet.merge_range(row, 1, row + 1, 1, 'Payslip Ref', font_bold_center)
+        worksheet.merge_range(row, 2, row + 1, 2, 'Employee', font_bold_center)
+        worksheet.merge_range(row, 3, row + 1, 3, 'Designation', font_bold_center)
+        col = 4
+        worksheet.set_row(row + 1, 30)
+        result = self.get_header(slip_ids)
+        col_lst = []
 
-        # Writing Header
-        row = 0
-        summary_worksheet.write(row, 0, "Company Name", font_bold_center)
-        summary_worksheet.merge_range(row, 1, row, 2, self.env.user.company_id.name or '', text_center)
-
-        # Populate data by category
-        row += 2
-        for category, subcategories in job_categories.items():
-            if category == "Company Staff":
-                summary_worksheet.write(row, 0, category, text_left_bold_16)
-                row += 1
-            elif category in ["Company Labour", "Mama Villa Labour", "Dr. Badria"]:
-                summary_worksheet.write(row, 0, category, text_left_bold_14)
-                row += 1
-
-            for subcategory, job_positions in subcategories.items():
-                if category == "Company Staff":
-                    summary_worksheet.write(row, 0, subcategory.upper(), text_left_bold_9_caps)
+        # Create dynamic headers
+        for item in result:
+            for categ_id, salary_rule_ids in item.items():
+                if not salary_rule_ids:
+                    continue
+                if len(salary_rule_ids) == 1:
+                    worksheet.write(row, col, categ_id.name, font_bold_center)
+                    worksheet.write(row + 1, col, salary_rule_ids[0].name, text_center)
+                    col += 1
+                    col_lst.append(salary_rule_ids[0])
                 else:
-                    summary_worksheet.write(row, 0, subcategory, text_left_bold_10)
+                    rule_count = len(salary_rule_ids) - 1
+                    worksheet.merge_range(row, col, row, col + rule_count, categ_id.name, font_bold_center)
+                    for rule_id in salary_rule_ids.sorted(key=lambda l: l.sequence):
+                        worksheet.write(row + 1, col, rule_id.name, text_center)
+                        col += 1
+                        col_lst.append(rule_id)
+        worksheet.merge_range(row, col, row + 1, col, 'Payment Method', font_bold_center)
+        col_lst.append('payment_method')
+        row += 3
+
+        # Group and write data
+        sr_no = 1
+        grand_totals = [0] * len(col_lst)
+        for main_category, subcategories in job_categories.items():
+            worksheet.write(row, 0, main_category, category_format)
+            row += 1
+            for subcategory, job_titles in subcategories.items():
+                worksheet.write(row, 0, subcategory, font_bold_center)
                 row += 1
-
-                # Header for payslip data
-                summary_worksheet.write(row, 0, 'No #', font_bold_center)
-                summary_worksheet.write(row, 1, 'Payslip Ref', font_bold_center)
-                summary_worksheet.write(row, 2, 'Employee', font_bold_center)
-                summary_worksheet.write(row, 3, 'Designation', font_bold_center)
-                summary_worksheet.write(row, 4, 'Basic Salary', font_bold_center)
-                summary_worksheet.write(row, 5, 'Allowances', font_bold_center)
-                summary_worksheet.write(row, 6, 'Deductions', font_bold_center)
-                summary_worksheet.write(row, 7, 'Net Salary', font_bold_center)
-                row += 1
-
-                # Filter employees by job positions
-                sr_no = 1
-                for payslip in slip_ids.filtered(lambda ps: ps.employee_id.job_id.name in job_positions):
-                    summary_worksheet.write(row, 0, sr_no, text_left)
-                    summary_worksheet.write(row, 1, payslip.number or '', text_left)
-                    summary_worksheet.write(row, 2, payslip.employee_id.name or '', text_left)
-                    summary_worksheet.write(row, 3, payslip.employee_id.job_id.name or '', text_left)
-
-                    # Populate salary details
-                    basic_salary = payslip.line_ids.filtered(lambda l: l.code == 'BASIC').mapped('total') or [0.0]
-                    allowances = payslip.line_ids.filtered(lambda l: l.category_id.name == 'Allowances').mapped('total') or [0.0]
-                    deductions = payslip.line_ids.filtered(lambda l: l.category_id.name == 'Deductions').mapped('total') or [0.0]
-                    net_salary = payslip.line_ids.filtered(lambda l: l.code == 'NET').mapped('total') or [0.0]
-
-                    summary_worksheet.write(row, 4, basic_salary[0], number_format)
-                    summary_worksheet.write(row, 5, sum(allowances), number_format)
-                    summary_worksheet.write(row, 6, sum(deductions), number_format)
-                    summary_worksheet.write(row, 7, net_salary[0], number_format)
-
+                subcategory_totals = [0] * len(col_lst)
+                for payslip in slip_ids.filtered(lambda p: p.employee_id.job_id.name in job_titles):
+                    worksheet.write(row, 0, sr_no, text_center)
+                    worksheet.write(row, 1, payslip.number)
+                    worksheet.write(row, 2, payslip.employee_id.name)
+                    worksheet.write(row, 3, payslip.employee_id.job_id.name or '')
+                    col = 4
+                    for col_index, col_rule_id in enumerate(col_lst):
+                        if col_rule_id == 'payment_method':
+                            worksheet.write(row, col, payslip.contract_id.payment_method or '')
+                        else:
+                            line_id = payslip.line_ids.filtered(lambda l: l.salary_rule_id.id == col_rule_id.id)
+                            amount = line_id.total or 0.0
+                            worksheet.write(row, col, amount, number_format)
+                            subcategory_totals[col_index] += amount
+                            grand_totals[col_index] += amount
+                        col += 1
                     row += 1
                     sr_no += 1
 
-                row += 1  # Add a blank line after each subcategory
+                # Write subcategory total
+                worksheet.write(row, 3, "Total", total_format)
+                col = 4
+                for total in subcategory_totals:
+                    worksheet.write(row, col, total, number_format)
+                    col += 1
+                row += 1
+
+        # Write grand total
+        worksheet.write(row, 3, "Grand Total", total_format)
+        col = 4
+        for total in grand_totals:
+            worksheet.write(row, col, total, number_format)
+            col += 1
 
         workbook.close()
         action = self.env.ref('eq_payslip_report.action_wizard_payslip_report').read()[0]
